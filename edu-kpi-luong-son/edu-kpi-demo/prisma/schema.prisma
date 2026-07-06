@@ -1,0 +1,206 @@
+// ============================================================
+// PRISMA SCHEMA
+// Hệ thống Quản lý & Số hóa Hồ sơ Giáo dục
+// Phòng Văn hóa - Xã hội xã Lương Sơn, tỉnh Lâm Đồng
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql" // Neon.tech (free tier) — tương thích Netlify Functions
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------
+// ENUM: Vai trò người dùng (gộp Role vào User cho gọn, demo 3 vai trò cố định)
+// ------------------------------------------------------------
+enum UserRole {
+  ADMIN               // Toàn quyền
+  CAN_BO_VHXH         // Cán bộ Văn hóa - Xã hội: CRUD dữ liệu
+  LANH_DAO_UBND       // Lãnh đạo UBND xã: chỉ xem Dashboard & báo cáo
+}
+
+enum GioiTinh {
+  NAM
+  NU
+}
+
+enum TinhTrangHocTap {
+  DANG_HOC
+  BO_HOC
+  CHUYEN_TRUONG
+  HOAN_THANH
+}
+
+// Mã nhóm hồ sơ giáo dục theo quy định
+enum MaHoSo {
+  GD_01
+  GD_08
+  GD_09
+  GD_10
+  GD_11
+  GD_22
+}
+
+enum LoaiVanBan {
+  LUAT
+  NGHI_DINH
+  THONG_TU
+  QUYET_DINH
+  CONG_VAN
+}
+
+// ------------------------------------------------------------
+// USER — tài khoản đăng nhập, vai trò quyết định quyền hạn
+// ------------------------------------------------------------
+model User {
+  id            String    @id @default(cuid())
+  fullName      String
+  email         String    @unique
+  passwordHash  String
+  role          UserRole  @default(CAN_BO_VHXH)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  uploadedRecords  EducationRecord[]
+  uploadedDocs     DocumentArchive[]
+
+  @@map("users")
+}
+
+// ------------------------------------------------------------
+// SCHOOL — trường học trên địa bàn xã
+// ------------------------------------------------------------
+model School {
+  id             String   @id @default(cuid())
+  name           String
+  principal      String
+  address        String
+  studentCount   Int      @default(0)
+  level          String?  // Mầm non / Tiểu học / THCS...
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  students          Student[]
+  educationRecords  EducationRecord[]
+
+  @@map("schools")
+}
+
+// ------------------------------------------------------------
+// STUDENT — hồ sơ học sinh
+// ------------------------------------------------------------
+model Student {
+  id           String            @id @default(cuid())
+  fullName     String
+  dob          DateTime
+  gender       GioiTinh
+  schoolId     String
+  school       School            @relation(fields: [schoolId], references: [id])
+  className    String            // Lớp
+  status       TinhTrangHocTap   @default(DANG_HOC)
+  address      String
+  schoolYear   String            // Ví dụ "2025-2026", dùng để lọc KPI theo năm học
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  educationRecords EducationRecord[]
+
+  @@map("students")
+}
+
+// ------------------------------------------------------------
+// EDUCATION RECORD — hồ sơ số hóa theo nhóm GD.01 → GD.22
+// File thật lưu trên Netlify Blobs, ở đây chỉ lưu fileKey tham chiếu
+// ------------------------------------------------------------
+model EducationRecord {
+  id           String    @id @default(cuid())
+  maHoSo       MaHoSo
+  title        String
+  studentId    String?
+  student      Student?  @relation(fields: [studentId], references: [id])
+  schoolId     String?
+  school       School?   @relation(fields: [schoolId], references: [id])
+  fileKey      String    // key trỏ tới Netlify Blobs
+  fileName     String
+  fileType     String    // pdf | docx
+  isDigitized  Boolean   @default(true)
+  uploadedById String
+  uploadedBy   User      @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime  @default(now())
+
+  @@map("education_records")
+}
+
+// ------------------------------------------------------------
+// DOCUMENT ARCHIVE — kho văn bản pháp quy giáo dục
+// ------------------------------------------------------------
+model DocumentArchive {
+  id           String      @id @default(cuid())
+  number       String      // Số hiệu văn bản
+  title        String      // Tên văn bản
+  issuer       String      // Cơ quan ban hành
+  issueDate    DateTime
+  type         LoaiVanBan
+  fileKey      String      // key trỏ tới Netlify Blobs
+  fileName     String
+  description  String?
+  uploadedById String
+  uploadedBy   User        @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime    @default(now())
+
+  @@map("document_archives")
+}
+
+// ------------------------------------------------------------
+// KPI — số liệu tổng hợp theo năm học, phục vụ Dashboard
+// ------------------------------------------------------------
+model KPI {
+  id                 String   @id @default(cuid())
+  schoolYear         String   @unique // "2025-2026"
+  totalStudents      Int
+  totalSchools       Int
+  enrollmentRate     Float    // Tỷ lệ huy động trẻ (%)
+  dropoutRate        Float    // Tỷ lệ bỏ học (%)
+  digitizedCount     Int      // Hồ sơ đã số hóa
+  undigitizedCount   Int      // Hồ sơ chưa số hóa
+  totalDocuments     Int      // Số văn bản giáo dục
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("kpis")
+}
+
+// ------------------------------------------------------------
+// NOTIFICATION — thông báo nội bộ đơn giản
+// ------------------------------------------------------------
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+// ------------------------------------------------------------
+// AUDIT LOG — nhật ký thao tác đơn giản
+// ------------------------------------------------------------
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String   // CREATE | UPDATE | DELETE | LOGIN...
+  target    String   // Ví dụ "Student#abc123"
+  detail    String?
+  timestamp DateTime @default(now())
+
+  @@map("audit_logs")
+}

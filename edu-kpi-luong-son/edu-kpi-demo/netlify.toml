@@ -1,0 +1,30 @@
+[build]
+  base    = "."
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  # Prisma engine cần được đưa vào bundle của function
+  included_files = ["node_modules/.prisma/client/**"]
+
+# Toàn bộ request /api/* sẽ được route sang function "api"
+# (function "api" bọc Express bằng serverless-http, xử lý mọi route con)
+[[redirects]]
+  from = "/api/*"
+  to   = "/.netlify/functions/api/:splat"
+  status = 200
+
+# SPA fallback cho React Router (nếu dùng client-side routing)
+[[redirects]]
+  from = "/*"
+  to   = "/index.html"
+  status = 200
+
+[dev]
+  command = "npm run dev"
+  targetPort = 5173
+  port = 8888
+  publish = "dist"
+  functions = "netlify/functions"
